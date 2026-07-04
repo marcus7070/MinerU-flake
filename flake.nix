@@ -30,6 +30,7 @@
       };
       pkgs = import nixpkgs { inherit system; overlays = [ overlay ]; };
     in {
+      inherit overlay;
       packages.${system} = {
         default = pkgs.python3Packages.mineru;
         mineru-models = pkgs.python3Packages.mineru-models;
