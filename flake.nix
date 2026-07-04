@@ -24,11 +24,15 @@
             torchvision        = pyFinal.callPackage ./packages/torchvision/package.nix {};
             transformers       = pyFinal.callPackage ./packages/transformers/package.nix {};
             mineru             = pyFinal.callPackage ./packages/mineru/package.nix {};
+            mineru-models      = pyFinal.callPackage ./packages/mineru-models/default.nix {};
           };
         };
       };
       pkgs = import nixpkgs { inherit system; overlays = [ overlay ]; };
     in {
-      packages.${system}.default = pkgs.python3Packages.mineru;
+      packages.${system} = {
+        default = pkgs.python3Packages.mineru;
+        mineru-models = pkgs.python3Packages.mineru-models;
+      };
     };
 }
