@@ -35,5 +35,33 @@
         default = pkgs.python3Packages.mineru;
         mineru-models = pkgs.python3Packages.mineru-models;
       };
+
+      # Curried function output. Takes per-invocation
+      # { pdf, pdfHash } and returns a derivation. The fixed
+      # dependencies are bound once per system at flake-eval
+      # time; only the inner closure is evaluated per call,
+      # with `pdf` and `pdfHash` substituted.
+      #
+      # Consumers call
+      # `flake.functions.x86_64-linux.process-pdf
+      #   { pdf = "..."; pdfHash = "..."; }`
+      # via `nix build --expr '<expr>'` with a locked
+      # `builtins.getFlake` reference (see the
+      # pprtrnt architecture doc §3.1.5 for the full
+      # expression).
+      functions.${system}.process-pdf = { pdf, pdfHash }:
+        let
+          pdfInput = builtins.path {
+            path = pdf;
+            sha256 = pdfHash;
+            recursive = false;
+            name = "input.pdf";
+          };
+        in
+        (import ./process-pdf.nix {
+          stdenv = pkgs.stdenv;
+          mineru = pkgs.python3Packages.mineru;
+          mineru-models = pkgs.python3Packages.mineru-models;
+        }) { pdf = pdfInput; };
     };
 }
