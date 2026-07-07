@@ -2,12 +2,12 @@
 
 buildPythonPackage rec {
   pname = "mineru-vl-utils";
-  version = "0.2.8";
+  version = "1.0.5";
   format = "wheel";
 
   src = fetchurl {
-    url = "https://files.pythonhosted.org/packages/7a/cd/bd5f56ee9da7ff8c0f43daa34ee38f2affdf653d6c533c86e531f9160ea2/mineru_vl_utils-0.2.8-py3-none-any.whl";
-    hash = "sha256-MDUNyS7ZiAfCN/6AW6Nu1llQpOmOQ211NiJzynuv2ek=";
+    url = "https://files.pythonhosted.org/packages/a0/e6/71556a212ab86c8845f5bec220952e08ba288342593161da41076c678627/mineru_vl_utils-1.0.5-py3-none-any.whl";
+    hash = "sha256-z5EOaPBgdjTmG2E7f1mS2vYEv4C0ANgee58PEXt8PBU=";
   };
 
   dependencies = [ httpx httpx-retries aiofiles pillow pydantic loguru ];

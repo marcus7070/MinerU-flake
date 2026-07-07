@@ -1,6 +1,7 @@
 { lib
 , buildPythonPackage
 , fetchurl
+, python
 , pythonRelaxDepsHook
 # core deps from nixpkgs
 , boto3
@@ -47,18 +48,19 @@
 , dill
 , pyyaml
 , ftfy
+, safetensors
 , torch
 , torchvision
 }:
 
 buildPythonPackage rec {
   pname = "mineru";
-  version = "3.1.15";
+  version = "3.4.2";
   format = "wheel";
 
   src = fetchurl {
-    url = "https://files.pythonhosted.org/packages/da/05/9b88b06f9dfd4057e4fc32ffd68a19a4fed171a9f60b4d521173e3ab4c6e/mineru-3.1.15-py3-none-any.whl";
-    hash = "sha256-xWq+SK8sIVCaPNtpMN6OagFW2f9/Fq+fVLZm4Zdbl8w=";
+    url = "https://files.pythonhosted.org/packages/78/5e/6b28b36c0f4d3a9051317c7660323043851d7db68b06ec7a16cba1f179a7/mineru-3.4.2-py3-none-any.whl";
+    hash = "sha256-iXtwx7rAY31DLecyvO5Y17qsnrEHWIHLWNspgAGF+H0=";
   };
 
   nativeBuildInputs = [ pythonRelaxDepsHook ];
@@ -105,6 +107,7 @@ buildPythonPackage rec {
     dill
     pyyaml
     ftfy
+    safetensors
     torch
     torchvision
     mammoth
@@ -125,6 +128,11 @@ buildPythonPackage rec {
   # not inherit those paths.  Re-export as PYTHONPATH in the bash wrappers so
   # the entire subprocess chain can locate the mineru package.
   postFixup = ''
+    substituteInPlace "$out/${python.sitePackages}/mineru/backend/vlm/vlm_analyze.py" \
+      --replace-fail \
+        "AsyncEngineArgs(**kwargs)" \
+        "AsyncEngineArgs(**{k: v for k, v in kwargs.items() if k != 'engine'})"
+
     wrapped="$out/bin/.mineru-wrapped"
     if [ -f "$wrapped" ]; then
       # The wrapped script stores paths as a list literal inside functools.reduce().

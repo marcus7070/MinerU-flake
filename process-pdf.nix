@@ -3,10 +3,8 @@
 # Build a single PDF through MinerU. Inputs:
 #   - stdenv:        the standard Nix build environment (from
 #                    nixpkgs via the MinerU-flake's overlay)
-#   - mineru:        the MinerU Python package (from
-#                    MinerU-flake/packages/mineru/)
-#   - mineru-models: the bundled PDF-Extract-Kit-1.0 model
-#                    weights (from MinerU-flake/packages/mineru-models/)
+#   - mineruPipeline: the MinerU pipeline wrapper package
+#                    configured with Nix-store model paths
 #   - pdf:           a /nix/store path containing the PDF
 #                    (supplied at function-call time by the
 #                    consumer; brought into the store by the
@@ -19,52 +17,30 @@
 # promotes them to the top level so downstream consumers don't
 # need to know the MinerU layout.)
 #
-# The mineru.json config is written inside the build sandbox
-# from the Nix inputs. The ${mineru-models} interpolation
-# gives the sandbox-time absolute path of the model store
-# path; the build never sees `~/.cache/`.
+# The MinerU wrapper provides MINERU_TOOLS_CONFIG_JSON and
+# points MinerU at Nix-store model paths; the build never
+# sees `~/.cache/`.
 #
 # This file was moved from nix/process-pdf.nix in the pprtrnt
 # repo as part of the slice 020 restructure. The body is
 # unchanged.
 
-{ stdenv, mineru, mineru-models }:
+{ stdenv, mineruPipeline }:
 
 { pdf }:
 
-let
-  modelsDir = "${mineru-models}";
-in
 stdenv.mkDerivation {
   name = "mineru-output";
   system = builtins.currentSystem;
 
-  buildInputs = [ mineru ];
+  buildInputs = [ mineruPipeline ];
 
   buildCommand = ''
     export HOME="$NIX_BUILD_TOP"
     mkdir -p "$HOME"
 
-    export MINERU_MODEL_SOURCE=local
-
-    cat > "$HOME/mineru.json" <<'EOF'
-{
-  "models-dir": {
-    "pipeline": "${modelsDir}",
-    "vlm": ""
-  },
-  "latex-delimiter-config": {
-    "display": {"left": "$$", "right": "$$"},
-    "inline": {"left": "$", "right": "$"}
-  },
-  "llm-aided-config": {
-    "title_aided": {"enable": false}
-  }
-}
-EOF
-
     mkdir -p "$out"
-    mineru -p ${pdf} -o "$out" --backend pipeline 2>&1
+    mineru -p ${pdf} -o "$out" 2>&1
 
     for subdir in "$out"/*/; do
       [ -d "$subdir" ] || continue
