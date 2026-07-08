@@ -12,6 +12,14 @@ The flake exposes these packages:
 | `.#vllm` | Local vLLM 0.21.0 Python package used by `.#mineru-vllm`. |
 | `.#mineru-models` | Nix-store checkout of `opendatalab/PDF-Extract-Kit-1.0`. |
 
+The flake also exposes top-level apps for each runtime flavour:
+
+| App | Description |
+|---|---|
+| `.#mineru-cpu` | Run the CPU pipeline wrapper. |
+| `.#mineru-cuda` | Run the CUDA hybrid/vLLM wrapper. |
+| `.#tests-cuda` | Validate CUDA driver discovery and run a vLLM smoke test. |
+
 ## Packaged Models
 
 The wrappers point MinerU at Nix-store model configs and set `MINERU_MODEL_SOURCE=local` when it is not already set.
@@ -24,18 +32,18 @@ The wrappers point MinerU at Nix-store model configs and set `MINERU_MODEL_SOURC
 ## Convert With The CPU Pipeline
 
 ```bash
-nix run .#mineru -- -p document.pdf -o ./output
+nix run .#mineru-cpu -- -p document.pdf -o ./output
 ```
 
-The wrapper adds `--backend pipeline` unless you pass a backend explicitly. The converted Markdown and extracted images are written under `./output/<name>/auto/`.
+The `.#mineru` and `.#mineru-pipeline` packages expose the same wrapper directly. The wrapper adds `--backend pipeline` unless you pass a backend explicitly. The converted Markdown and extracted images are written under `./output/<name>/auto/`.
 
 ## Convert With vLLM
 
 ```bash
-nix run .#mineru-vllm -- -p document.pdf -o ./output --gpu-memory-utilization 0.5
+nix run .#mineru-cuda -- -p document.pdf -o ./output --gpu-memory-utilization 0.5
 ```
 
-The wrapper adds `--backend hybrid-engine --engine vllm` unless those options are passed explicitly.
+The `.#mineru-vllm` package exposes the same wrapper directly. The wrapper adds `--backend hybrid-engine --engine vllm` unless those options are passed explicitly.
 
 At runtime it looks for the CUDA driver library in:
 
