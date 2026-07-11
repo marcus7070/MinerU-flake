@@ -133,6 +133,17 @@ buildPythonPackage rec {
         "AsyncEngineArgs(**kwargs)" \
         "AsyncEngineArgs(**{k: v for k, v in kwargs.items() if k != 'engine'})"
 
+    substituteInPlace "$out/${python.sitePackages}/mineru/utils/cli_parser.py" \
+      --replace-fail \
+        "    except ValueError:
+            return raw_value" \
+        "    except ValueError:
+            import json
+            try:
+                return json.loads(raw_value)
+            except ValueError:
+                return raw_value"
+
     wrapped="$out/bin/.mineru-wrapped"
     if [ -f "$wrapped" ]; then
       # The wrapped script stores paths as a list literal inside functools.reduce().

@@ -18,6 +18,7 @@
   numactl,
   llvmPackages,
   aiohttp,
+  amdsmi,
   anthropic,
   apache-tvm-ffi,
   bitsandbytes,
@@ -84,7 +85,6 @@
   tokenizers,
   tokenspeed-mla,
   torch,
-  torchaudio,
   torchvision,
   tqdm,
   transformers,
@@ -97,6 +97,8 @@
   cupy,
   cudaSupport ? torch.cudaSupport,
   cudaPackages ? { },
+  rocmSupport ? false,
+  rocmPackages ? { },
   gpuTargets ? [ ],
 }:
 
@@ -112,6 +114,14 @@ let
     repo = "cutlass";
     tag = "v4.4.2";
     hash = "sha256-0q9Ad0Z6E/rO2PdM4uQc8H0E0qs9uKc3reHepiHhjEc=";
+  };
+
+  composable_kernel_src = fetchFromGitHub {
+    name = "composable-kernel-source";
+    owner = "ROCm";
+    repo = "composable_kernel";
+    rev = "13f6d635653bd5ffbfcac8577f1ef09590c23d78";
+    hash = "sha256-nS1Apx4kLTIz7U2/X1BVQHiBwa5j59VboaibOhH9ADM=";
   };
 
   flashmla = stdenv.mkDerivation {
@@ -186,6 +196,9 @@ let
     buildPhase = ''
       rm -rf csrc/cutlass
       ln -sf ${cutlass} csrc/cutlass
+    '' + lib.optionalString rocmSupport ''
+      rm -rf csrc/composable_kernel
+      ln -sf ${composable_kernel_src} csrc/composable_kernel
     '';
 
     installPhase = ''
@@ -193,7 +206,7 @@ let
     '';
   };
 
-  cpuSupport = !cudaSupport;
+  cpuSupport = !cudaSupport && !rocmSupport;
 
   supportedTorchCudaCapabilities = [
     "3.5" "3.7" "5.0" "5.2" "5.3" "6.0" "6.1" "6.2" "7.0" "7.2" "7.5"
@@ -212,7 +225,14 @@ let
     ) supported;
 
   gpuTargetString = strings.concatStringsSep ";" (
-    if gpuTargets != [ ] then gpuTargets else gpuArchWarner supportedCudaCapabilities unsupportedCudaCapabilities
+    if gpuTargets != [ ] then
+      gpuTargets
+    else if cudaSupport then
+      gpuArchWarner supportedCudaCapabilities unsupportedCudaCapabilities
+    else if rocmSupport then
+      rocmPackages.clr.localGpuTargets or rocmPackages.clr.gpuTargets
+    else
+      throw "No GPU targets specified"
   );
 
   fa3CudaMajorPrefixes = [ "9." "10." "11." "12." ];
@@ -229,6 +249,13 @@ let
     cuda_nvtx
     cuda_nvrtc
     libcublas
+  ];
+
+  # header path ends up missing rocthrust & its deps
+  rocmExtraIncludeFlags = lib.concatMapStringsSep " " (pkg: "-I${lib.getInclude pkg}/include") [
+    rocmPackages.rocthrust
+    rocmPackages.rocprim
+    rocmPackages.hipcub
   ];
 
   nccl = shouldUsePkg (cudaPackages.nccl or null);
@@ -287,6 +314,8 @@ buildPythonPackage.override { stdenv = torch.stdenv; } (finalAttrs: {
 
   nativeBuildInputs = [
     which
+  ] ++ lib.optionals rocmSupport [
+    rocmPackages.hipcc
   ] ++ lib.optionals cudaSupport [
     cudaPackages.cuda_nvcc
     autoAddDriverRunpath
@@ -318,6 +347,27 @@ buildPythonPackage.override { stdenv = torch.stdenv; } (finalAttrs: {
         libcufile
       ])
     )
+    ++ lib.optionals rocmSupport (
+      with rocmPackages;
+      [
+        rocblas
+        miopen-hip
+        rccl
+        hiprand
+        hipsparse
+        hipsolver
+        rocprim
+        hipcub
+        rocthrust
+        hipfft
+        hipblas
+        hipblaslt
+        rocm-runtime
+        clr
+        rocrand
+        rocsolver
+      ]
+    )
     ++ lib.optionals stdenv.cc.isClang [
       llvmPackages.openmp
     ];
@@ -326,7 +376,6 @@ buildPythonPackage.override { stdenv = torch.stdenv; } (finalAttrs: {
     aiohttp
     anthropic
     apache-tvm-ffi
-    bitsandbytes
     blake3
     cachetools
     cbor2
@@ -385,14 +434,12 @@ buildPythonPackage.override { stdenv = torch.stdenv; } (finalAttrs: {
     tokenspeed-mla
     torch
     torch.stdenv.cc
-    torchaudio
     torchvision
     tqdm
     transformers
     typing-extensions
     uvicorn
     watchfiles
-    xformers
     xgrammar
     pyyaml
   ]
@@ -401,12 +448,18 @@ buildPythonPackage.override { stdenv = torch.stdenv; } (finalAttrs: {
     py-libnuma
   ]
   ++ lib.optionals cudaSupport [
+    bitsandbytes
     cupy
     flashinfer
     flashinfer-cubin
     nvidia-cudnn-frontend
     nvidia-cutlass-dsl
     nvidia-ml-py
+    xformers
+  ]
+  ++ lib.optionals rocmSupport [
+    rocmPackages.rocminfo
+    amdsmi
   ];
 
   dontUseCmakeConfigure = true;
@@ -425,6 +478,14 @@ buildPythonPackage.override { stdenv = torch.stdenv; } (finalAttrs: {
     (lib.cmakeBool "CMAKE_SKIP_RPATH" true)
     (lib.cmakeBool "CMAKE_SKIP_INSTALL_RPATH" true)
     (lib.cmakeBool "CMAKE_BUILD_WITH_INSTALL_RPATH" true)
+  ] ++ lib.optionals rocmSupport [
+    (lib.cmakeFeature "VLLM_FLASH_ATTN_SRC_DIR" "${lib.getDev vllm-flash-attn}")
+    (lib.cmakeFeature "QUTLASS_SRC_DIR" "${lib.getDev qutlass}")
+    (lib.cmakeFeature "PYTORCH_ROCM_ARCH" "${gpuTargetString}")
+    (lib.cmakeFeature "ROCM_PATH" "${rocmPackages.clr}")
+    (lib.cmakeBool "CMAKE_SKIP_RPATH" true)
+    (lib.cmakeBool "CMAKE_SKIP_INSTALL_RPATH" true)
+    (lib.cmakeBool "CMAKE_BUILD_WITH_INSTALL_RPATH" true)
   ];
 
   env = {
@@ -434,6 +495,13 @@ buildPythonPackage.override { stdenv = torch.stdenv; } (finalAttrs: {
     CUDA_HOME = "${cudaToolkit}";
     CUDA_PATH = "${cudaToolkit}";
     TRITON_KERNELS_SRC_DIR = "${lib.getDev triton-kernels}/python/triton_kernels/triton_kernels";
+  } // lib.optionalAttrs rocmSupport {
+    VLLM_TARGET_DEVICE = "rocm";
+    PYTORCH_ROCM_ARCH = gpuTargetString;
+    ROCM_PATH = "${rocmPackages.clr}";
+    TRITON_KERNELS_SRC_DIR = "${lib.getDev triton-kernels}/python/triton_kernels/triton_kernels";
+    HIPFLAGS = rocmExtraIncludeFlags;
+    CXXFLAGS = rocmExtraIncludeFlags;
   } // lib.optionalAttrs cpuSupport {
     VLLM_TARGET_DEVICE = "cpu";
     FETCHCONTENT_SOURCE_DIR_ONEDNN = "${onednn.src}";
