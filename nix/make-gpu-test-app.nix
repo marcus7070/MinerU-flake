@@ -56,9 +56,9 @@ let
       # --compilation-config: RDNA2 (gfx1030) lacks fdot2 used by vLLM compiled
       #   custom ops, so disable all compiled custom ops.
       # --ir-op-priority: avoid vLLM custom kernel runtime compilation issues.
-      TORCH_SDPA_ENABLE_FLASH=1 \
-      TORCH_SDPA_ENABLE_MEM_EFFICIENT=1 \
-      TORCH_SDPA_ENABLE_MATH=0 \
+      # TORCH_SDPA_ENABLE_* env vars are now in rocmRuntimeSetup / cudaRuntimeSetup
+      # in flake.nix.  The flags here mirror rocmDefaultArgs / cudaDefaultArgs
+      # for compatibility.
       nohup ${mineruPackage}/bin/mineru \
         -p ${examplePdf} \
         -o ${smokeOutput} \

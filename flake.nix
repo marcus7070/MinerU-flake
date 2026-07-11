@@ -433,6 +433,9 @@
       # mineru.utils.config_reader.get_device() (called by HybridModel and OCR)
       # to return "cpu" instead of "cuda".
       rocmRuntimeSetup = ''
+        export TORCH_SDPA_ENABLE_FLASH=1
+        export TORCH_SDPA_ENABLE_MEM_EFFICIENT=1
+        export TORCH_SDPA_ENABLE_MATH=0
         export ROCM_PATH=${rocmToolkit}
         export HIP_VISIBLE_DEVICES=0
         export HSA_OVERRIDE_GFX_VERSION=''${HSA_OVERRIDE_GFX_VERSION:-10.3.0}
@@ -549,6 +552,30 @@
         inherit pkgs;
         examplePdf = ./example.pdf;
       };
+
+      # Default GPU tuning flags for ROCm builds.
+      # These are baked into the derivation hash so changing any flag
+      # produces a new store path.  The values are tuned for RX 6600
+      # (8 GiB VRAM, RDNA2 gfx1030).
+      rocmDefaultArgs = [
+        "--skip-mm-profiling"
+        "--gpu-memory-utilization" "0.5"
+        "--enforce-eager"
+        "--cpu-offload-gb" "3.0"
+        "--max-num-seqs" "1"
+        "--max-model-len" "2048"
+        "--compilation-config" (builtins.toJSON {
+          custom_ops = [ "none" ];
+          pass_config = {
+            fuse_norm_quant = false;
+            fuse_act_quant = false;
+          };
+        })
+        "--ir-op-priority" (builtins.toJSON {
+          rms_norm = [ "native" ];
+          fused_add_rms_norm = [ "native" ];
+        })
+      ];
     in {
       overlay = baseOverlay;
 
@@ -593,7 +620,8 @@
         };
       };
 
-      functions.${system}.process-pdf = { pdf, pdfHash }:
+      functions.${system}.process-pdf =
+        { pdf, pdfHash, variant ? "cpu", extraMineruArgs ? null }:
         let
           pdfInput = builtins.path {
             path = pdf;
@@ -601,10 +629,22 @@
             recursive = false;
             name = "input.pdf";
           };
+
+          effectiveArgs = if extraMineruArgs != null then extraMineruArgs
+            else if variant == "rocm" then rocmDefaultArgs
+            else if variant == "cuda" then [ ]  # future: cudaDefaultArgs
+            else [ ];
+
+          pipeline =
+            if variant == "rocm" then mineru-rocm
+            else if variant == "cuda" then mineru-cuda
+            else mineru-pipeline;
         in
         (import ./process-pdf.nix {
+          inherit (pkgs) lib;
           stdenv = pkgs.stdenv;
-          mineruPipeline = mineru-pipeline;
+          mineruPipeline = pipeline;
+          extraMineruArgs = effectiveArgs;
         }) { pdf = pdfInput; };
     };
 }
