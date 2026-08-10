@@ -1,6 +1,6 @@
-{ lib
-, buildPythonPackage
-, fetchurl
+{ buildPythonPackage
+, fetchFromGitHub
+, setuptools
 , python
 , pythonRelaxDepsHook
 # core deps from nixpkgs
@@ -8,7 +8,6 @@
 , click
 , loguru
 , numpy
-, pdfminer-six
 , tqdm
 , requests
 , httpx
@@ -20,7 +19,6 @@
 , huggingface-hub
 , json-repair
 , opencv4
-, scikit-image
 , openai
 , beautifulsoup4
 , magika
@@ -28,7 +26,6 @@
 , mammoth
 , pylatexenc
 , lxml
-, pandas
 , openpyxl
 , fastapi
 , python-multipart
@@ -37,15 +34,11 @@
 , pdftext
 , fast-langdetect
 , mineru-vl-utils
-, qwen-vl-utils
 , pypptx-with-oxml
 , transformers
-, albumentations
 , shapely
 , pyclipper
-, omegaconf
 , onnxruntime
-, dill
 , pyyaml
 , ftfy
 , safetensors
@@ -56,16 +49,18 @@
 buildPythonPackage rec {
   pname = "mineru";
   version = "3.4.2";
-  format = "wheel";
+  pyproject = true;
 
-  src = fetchurl {
-    url = "https://files.pythonhosted.org/packages/78/5e/6b28b36c0f4d3a9051317c7660323043851d7db68b06ec7a16cba1f179a7/mineru-3.4.2-py3-none-any.whl";
-    hash = "sha256-iXtwx7rAY31DLecyvO5Y17qsnrEHWIHLWNspgAGF+H0=";
+  src = fetchFromGitHub {
+    owner = "opendatalab";
+    repo = "MinerU";
+    rev = "53fde6d2988603bcf7b4af3cc23dc7d758291580";
+    hash = "sha256-uOnrdvxYiHqv2w2w+rleWUOPwJ9YcbdUnNXkhP8LDnY=";
   };
 
   nativeBuildInputs = [ pythonRelaxDepsHook ];
+  build-system = [ setuptools ];
 
-  dontBuild = true;
   dontCheckRuntimeDeps = true;
 
   # opencv-python is provided by nixpkgs opencv4 (pname="opencv")
@@ -76,7 +71,6 @@ buildPythonPackage rec {
     click
     loguru
     numpy
-    pdfminer-six
     tqdm
     requests
     httpx
@@ -90,21 +84,16 @@ buildPythonPackage rec {
     json-repair
     opencv4
     fast-langdetect
-    scikit-image
     openai
     beautifulsoup4
     magika
     mineru-vl-utils
-    qwen-vl-utils
     python-docx
     pypptx-with-oxml
     transformers
-    albumentations
     shapely
     pyclipper
-    omegaconf
     onnxruntime
-    dill
     pyyaml
     ftfy
     safetensors
@@ -113,7 +102,6 @@ buildPythonPackage rec {
     mammoth
     pylatexenc
     lxml
-    pandas
     openpyxl
     fastapi
     python-multipart
@@ -173,7 +161,13 @@ buildPythonPackage rec {
   meta = {
     description = "An efficient open-source tool for converting PDFs to Markdown";
     homepage = "https://github.com/opendatalab/MinerU";
-    license = lib.licenses.asl20;
+    license = {
+      free = true;
+      fullName = "MinerU Open Source License";
+      shortName = "LicenseRef-MinerU-Open-Source-License";
+      spdxId = "LicenseRef-MinerU-Open-Source-License";
+      url = "https://github.com/opendatalab/MinerU/blob/53fde6d2988603bcf7b4af3cc23dc7d758291580/LICENSE.md";
+    };
     mainProgram = "mineru";
   };
 }

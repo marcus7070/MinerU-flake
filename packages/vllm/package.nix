@@ -364,6 +364,7 @@ buildPythonPackage.override { stdenv = torch.stdenv; } (finalAttrs: {
         hipblaslt
         rocm-runtime
         clr
+        rocm-smi
         rocrand
         rocsolver
       ]
@@ -497,6 +498,7 @@ buildPythonPackage.override { stdenv = torch.stdenv; } (finalAttrs: {
     TRITON_KERNELS_SRC_DIR = "${lib.getDev triton-kernels}/python/triton_kernels/triton_kernels";
   } // lib.optionalAttrs rocmSupport {
     VLLM_TARGET_DEVICE = "rocm";
+    VLLM_VERSION_OVERRIDE = finalAttrs.version;
     PYTORCH_ROCM_ARCH = gpuTargetString;
     ROCM_PATH = "${rocmPackages.clr}";
     TRITON_KERNELS_SRC_DIR = "${lib.getDev triton-kernels}/python/triton_kernels/triton_kernels";

@@ -1,10 +1,11 @@
 { lib, buildPythonPackage, fetchFromGitHub, cmake, ninja, pkg-config
-, torch, libjpeg, libpng, python }:
+, torch, libjpeg, libpng, numpy, pillow, python, setuptools }:
 
 buildPythonPackage rec {
   pname = "torchvision";
   version = "0.26.0";
   format = "setuptools";
+  build-system = [ setuptools ];
 
   src = fetchFromGitHub {
     owner = "pytorch";
@@ -26,7 +27,7 @@ buildPythonPackage rec {
     CMAKE_PREFIX_PATH = "${torch.dev}/share/cmake";
   };
 
-  dependencies = [ torch ];
+  dependencies = [ numpy pillow torch ];
 
   pythonImportsCheck = [ "torchvision" ];
 

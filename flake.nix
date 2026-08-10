@@ -11,9 +11,11 @@
         mineru-models = final.callPackage ./packages/mineru-models/default.nix {};
 
         # Source-built torch (before overlay replaces it with torch-bin) for ROCm overrides
-        torch-src = prev.python3Packages.torch;
+        torch-src = prev.python313Packages.torch;
+        # Source-built torchvision (before overlay replaces it with torchvision-bin)
+        torchvision-src = prev.python313Packages.torchvision;
 
-        python3Packages = prev.python3Packages.override {
+        python313Packages = prev.python313Packages.override {
           overrides = pyFinal: pyPrev: {
             fasttext-predict   = pyPrev.fasttext.overrideAttrs (old: {
               postInstall = (old.postInstall or "") + ''
@@ -25,10 +27,17 @@
             fast-langdetect    = pyFinal.callPackage ./packages/fast-langdetect/package.nix {};
             pdftext            = pyFinal.callPackage ./packages/pdftext/package.nix {};
             mineru-vl-utils    = pyFinal.callPackage ./packages/mineru-vl-utils/package.nix {};
-            qwen-vl-utils      = pyFinal.callPackage ./packages/qwen-vl-utils/package.nix {};
             pypptx-with-oxml   = pyFinal.callPackage ./packages/pypptx-with-oxml/package.nix {};
             onnxruntime        = pyFinal.callPackage ./packages/onnxruntime-bin/package.nix {};
-            torch              = pyPrev.torch-bin.overridePythonAttrs (old: {
+            cuda-bindings      = pyPrev.cuda-bindings.override {
+              cudaPackages = prev.cudaPackages_13_0;
+            };
+            torch              = (pyPrev.torch-bin.override {
+              cudaPackages = prev.cudaPackages_13_0 // {
+                libnvshmem = prev.cudaPackages.libnvshmem;
+              };
+            }).overridePythonAttrs (old: {
+              dontCheckRuntimeDeps = true;
               passthru = (old.passthru or {}) // {
                 cudaSupport = false;
                 cudaCapabilities = [ ];
@@ -38,7 +47,9 @@
               };
             });
             torchaudio         = pyPrev.torchaudio-bin;
-            torchvision        = pyPrev.torchvision-bin;
+            torchvision        = pyPrev.torchvision-bin.override {
+              torch-bin = pyFinal.torch;
+            };
             transformers       = pyFinal.callPackage ./packages/transformers/package.nix {};
             cupy               = pyPrev.cupy.overridePythonAttrs (old: {
               env = (old.env or {}) // {
@@ -63,6 +74,13 @@
               doCheck = false;
             });
             xformers          = pyPrev.xformers.overridePythonAttrs (old: {
+              build-system = builtins.map (dep:
+                if (dep.pname or "") == "setuptools" then pyPrev.setuptools_80 else dep
+              ) (old.build-system or [ ]);
+              dependencies = builtins.filter (dep: (dep.pname or "") != "torch")
+                (old.dependencies or []) ++ [ pyFinal.torch ];
+              propagatedBuildInputs = builtins.filter (dep: (dep.pname or "") != "torch")
+                (old.propagatedBuildInputs or []) ++ [ pyFinal.torch ];
               preBuild = (old.preBuild or "") + ''
                 export MAX_JOBS=2
                 export TORCH_DONT_CHECK_COMPILER_ABI=1
@@ -76,6 +94,11 @@
             triton            = pyPrev.triton-bin;
             triton-cuda       = pyPrev.triton-cuda;
             flashinfer-cubin  = pyFinal.callPackage ./packages/flashinfer-cubin/package.nix {};
+            flashinfer         = pyPrev.flashinfer.overridePythonAttrs (_old: {
+              # nixpkgs checks for distribution metadata named flashinfer,
+              # while this wheel publishes flashinfer_python metadata.
+              pythonMetadataCheckPhase = "true";
+            });
             fastsafetensors   = pyFinal.callPackage ./packages/fastsafetensors/package.nix {};
             opentelemetry-semantic-conventions-ai =
               pyFinal.callPackage ./packages/opentelemetry-semantic-conventions-ai/package.nix {};
@@ -99,17 +122,36 @@
           ];
           problems.handlers = {
             flashinfer.broken = "ignore";
+            torch.unsupported-cuda-version = "warn";
           };
         };
       };
-      pyPkgs = pkgs.python3Packages;
+      pyPkgs = pkgs.python313Packages;
+      # PyTorch's CUDA 13 wheel needs the CUDA 13 sonames below.  NVSHMEM's
+      # host ABI is unchanged between these nixpkgs revisions, and reusing the
+      # already-built CUDA 12.9 package avoids compiling its large test suite.
+      cudaPackagesCUDA = pkgs.cudaPackages_13_0 // {
+        libnvshmem = pkgs.cudaPackages.libnvshmem;
+      };
 
       # ── CPU variant ──
-      torchCPU    = pyPkgs.torch-bin;
-      torchvisionCPU = pyPkgs.torchvision-bin;
+      torchCPU    = pkgs.torch-src.override {
+        cudaSupport = false;
+        rocmSupport = false;
+      };
+      torchvisionCPU = pkgs.torchvision-src.override {
+        torch = torchCPU;
+      };
+      safetensorsCPU = pyPkgs.safetensors.override {
+        torch = torchCPU;
+      };
+      transformersCPU = pyPkgs.transformers.override {
+        safetensors = safetensorsCPU;
+      };
       vllmCPU     = pyPkgs.callPackage ./packages/vllm/package.nix {
         cudaSupport = false; rocmSupport = false;
         torch = torchCPU; torchvision = torchvisionCPU;
+        transformers = transformersCPU;
         aiohttp = pyPkgs.aiohttp;
         apache-tvm-ffi = pyPkgs.apache-tvm-ffi;
         anthropic = pyPkgs.anthropic;
@@ -163,6 +205,8 @@
         amdsmi = pyPkgs.amdsmi;
       };
       mineruCPU   = pyPkgs.callPackage ./packages/mineru/package.nix {
+        safetensors = safetensorsCPU;
+        transformers = transformersCPU;
         torch = torchCPU;
         torchvision = torchvisionCPU;
       };
@@ -170,19 +214,22 @@
 
       # ── CUDA variant ──
       torchCUDA   = pyPkgs.torch.overridePythonAttrs (old: {
+        dontCheckRuntimeDeps = true;
         passthru = (old.passthru or {}) // {
           cudaSupport = true;
-          cudaPackages = pkgs.cudaPackages_12_9;
+          cudaPackages = cudaPackagesCUDA;
           cudaCapabilities = [ "8.9" ];
-          cudaMajorMinorVersion = pkgs.cudaPackages.cudaMajorMinorVersion;
+          cudaMajorMinorVersion = cudaPackagesCUDA.cudaMajorMinorVersion;
           rocmSupport = false;
           rocmPackages = pkgs.rocmPackages;
         };
       });
+      torchvisionCUDA = pyPkgs.torchvision;
       vllmCUDA    = pyPkgs.callPackage ./packages/vllm/package.nix {
         cudaSupport = true;
-        cudaPackages = pkgs.cudaPackages_12_9;
+        cudaPackages = cudaPackagesCUDA;
         gpuTargets = [ "8.9" ];
+        setuptools = pyPkgs.setuptools_80;
         torch = torchCUDA;
         aiohttp = pyPkgs.aiohttp;
         apache-tvm-ffi = pyPkgs.apache-tvm-ffi;
@@ -237,7 +284,12 @@
         amdsmi = pyPkgs.amdsmi;
       };
       mineruCUDA  = mineruCPU.overridePythonAttrs (old: {
-        dependencies = (old.dependencies or [ ]) ++ [
+        dependencies = builtins.filter (dep:
+          let pname = dep.pname or "";
+          in pname != "torch" && pname != "torchvision"
+            && pname != "transformers" && pname != "safetensors"
+        ) (old.dependencies or [ ]) ++ [ torchCUDA torchvisionCUDA
+          pyPkgs.transformers pyPkgs.safetensors
           pyPkgs.accelerate pyPkgs.pycountry pyPkgs.uvloop vllmCUDA
         ];
       });
@@ -250,6 +302,11 @@
       };
       torchvisionROCm = pyPkgs.callPackage ./packages/torchvision/package.nix {
         torch = torchROCm;
+        numpy = pyPkgs.numpy;
+        pillow = pyPkgs.pillow;
+        # torchvision 0.26.0 still imports pkg_resources from setup.py;
+        # setuptools 82 removed that compatibility module.
+        setuptools = pyPkgs.setuptools_80;
       };
 
       # Rebuild a package to use torchROCm instead of torch-bin and
@@ -284,6 +341,13 @@
         buildPhase = "true";
       });
 
+      # apache-tvm-ffi's CLI test requires a completely silent stderr.  The
+      # ROCm torch import emits a harmless warning when no /sys/class/kfd
+      # topology exists, which is normal on build hosts without an AMD GPU.
+      apacheTvmFFIROCm = (withTorchROCm pyPkgs.apache-tvm-ffi).overridePythonAttrs (_old: {
+        doCheck = false;
+      });
+
       vllmROCm    = pyPkgs.callPackage ./packages/vllm/package.nix {
         rocmSupport = true;
         rocmPackages = pkgs.rocmPackages;
@@ -291,7 +355,7 @@
         torch = torchROCm;
         torchvision = torchvisionROCm;
         aiohttp = pyPkgs.aiohttp;
-        apache-tvm-ffi = withTorchROCm pyPkgs.apache-tvm-ffi;
+        apache-tvm-ffi = apacheTvmFFIROCm;
         anthropic = pyPkgs.anthropic;
         bitsandbytes = pyPkgs.bitsandbytes;
         blake3 = pyPkgs.blake3;
@@ -344,8 +408,13 @@
       };
       mineruROCm  = mineruCPU.overridePythonAttrs (old: {
         dependencies =
-          builtins.filter (dep: dep.pname or "" != "torch" && dep.pname or "" != "torchvision") (old.dependencies or [])
+          builtins.filter (dep:
+            dep.pname or "" != "torch"
+            && dep.pname or "" != "torchvision"
+            && dep.pname or "" != "transformers"
+            && dep.pname or "" != "safetensors") (old.dependencies or [])
           ++ [ torchROCm torchvisionROCm
+               pyPkgs.transformers pyPkgs.safetensors
                (withTorchROCm pyPkgs.accelerate)
                pyPkgs.pycountry pyPkgs.uvloop vllmROCm ];
       });
@@ -359,11 +428,12 @@
             (pkgs.lib.getOutput "include" p)
           ];
         in pkgs.symlinkJoin {
-          name = "mineru-cuda-runtime-${pkgs.cudaPackages.cudaMajorMinorVersion}";
-          paths = builtins.concatMap getAllOutputs (with pkgs.cudaPackages; [
+          name = "mineru-cuda-runtime-${cudaPackagesCUDA.cudaMajorMinorVersion}";
+          paths = builtins.concatMap getAllOutputs (with cudaPackagesCUDA; [
             cuda_nvcc
+            cuda_crt
             cuda_cudart
-            cuda_cccl
+            cccl
             libcurand
             libcusparse
             libcusolver
@@ -390,7 +460,7 @@
         ];
       };
 
-      mineruPipelineModels = pkgs.python3Packages.mineru-models;
+      mineruPipelineModels = pkgs.python313Packages.mineru-models;
       mineruVlmModels = pkgs.fetchgit {
         url = "https://huggingface.co/opendatalab/MinerU2.5-2509-1.2B";
         rev = "1aa090b41282e64fadd79c10572221f91ec21924";
@@ -423,7 +493,9 @@
         export LIBRARY_PATH="${mineruCudaToolkit}/lib:''${LIBRARY_PATH:-}"
         ${cudaDriverDiscovery}
         export FLASHINFER_DISABLE_VERSION_CHECK=1
-        export FLASHINFER_WORKSPACE_BASE="''${TMPDIR:-/tmp}/mineru-flashinfer-cuda129-link"
+        # Include the toolchain layout in the cache name so a previous
+        # generated Ninja file cannot retain an obsolete nvcc path.
+        export FLASHINFER_WORKSPACE_BASE="''${TMPDIR:-/tmp}/mineru-flashinfer-cuda130-crt-package-link"
       '';
 
       rocmDriverDiscovery = import ./nix/rocm-driver-discovery.nix;
@@ -540,11 +612,11 @@
         '';
       };
 
-      cudaTestPython = pkgs.python3.withPackages (_: [
+      cudaTestPython = pkgs.python313.withPackages (_: [
         torchCUDA
         vllmCUDA
       ]);
-      rocmTestPython = pkgs.python3.withPackages (_: [
+      rocmTestPython = pkgs.python313.withPackages (_: [
         torchROCm
         vllmROCm
       ]);
