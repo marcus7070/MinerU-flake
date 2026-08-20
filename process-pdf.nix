@@ -10,9 +10,7 @@
 #                      (e.g. GPU tuning flags)
 #   - pdf:             a /nix/store path containing the PDF
 #                      (supplied at function-call time by the
-#                      consumer; brought into the store by the
-#                      flake's builtins.path content-addressing
-#                      call).
+#                      consumer; it must already be in the Nix store).
 #
 # Output: a directory containing `full.md` and
 # `content_list.json` at the top level. (MinerU normally writes

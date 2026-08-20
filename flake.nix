@@ -693,15 +693,8 @@
       };
 
       functions.${system}.process-pdf =
-        { pdf, pdfHash, variant ? "cpu", extraMineruArgs ? null }:
+        { pdf, variant ? "cpu", extraMineruArgs ? null }:
         let
-          pdfInput = builtins.path {
-            path = pdf;
-            sha256 = pdfHash;
-            recursive = false;
-            name = "input.pdf";
-          };
-
           effectiveArgs = if extraMineruArgs != null then extraMineruArgs
             else if variant == "rocm" then rocmDefaultArgs
             else if variant == "cuda" then [ ]  # future: cudaDefaultArgs
@@ -717,6 +710,6 @@
           stdenv = pkgs.stdenv;
           mineruPipeline = pipeline;
           extraMineruArgs = effectiveArgs;
-        }) { pdf = pdfInput; };
+        }) { inherit pdf; };
     };
 }
